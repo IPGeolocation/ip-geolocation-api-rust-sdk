@@ -40,9 +40,9 @@ use ipgeolocation::{
 };
 ```
 
-Cargo package: `ip-geolocation-api-rust-sdk`
-Library import: `ipgeolocation`
-GitHub repository: <https://github.com/IPGeolocation/ip-geolocation-api-rust-sdk>
+- Cargo package: `ip-geolocation-api-rust-sdk`
+- Library import: `ipgeolocation`
+- GitHub repository: <https://github.com/IPGeolocation/ip-geolocation-api-rust-sdk>
 
 > [!NOTE]
 > The Cargo package name is `ip-geolocation-api-rust-sdk`, but the library import path is `ipgeolocation`.
