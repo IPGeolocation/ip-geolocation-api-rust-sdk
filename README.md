@@ -470,37 +470,31 @@ match client.lookup_ip_geolocation(&LookupIpGeolocationRequest {
 
 <details>
 <summary>Can I use this SDK without an API key?</summary>
-
 Only for single lookup with paid-plan request-origin auth. Bulk lookup always requires an API key.
 </details>
 
 <details>
 <summary>Can I request XML and still get typed models?</summary>
-
 No. Typed methods only support JSON. Use `lookup_ip_geolocation_raw` or `bulk_lookup_ip_geolocation_raw` for XML.
 </details>
 
 <details>
 <summary>Why is the Cargo package name different from the library import?</summary>
-
 The published package name is `ip-geolocation-api-rust-sdk`, but the crate you import in Rust code is `ipgeolocation`.
 </details>
 
 <details>
 <summary>Why are so many response fields Option values?</summary>
-
 Optional fields let the SDK preserve omitted API fields instead of inventing empty values for data the API did not send.
 </details>
 
 <details>
 <summary>Does domain lookup work on the free plan?</summary>
-
 No. Domain lookup is a paid-plan feature.
 </details>
 
 <details>
 <summary>Is this client async?</summary>
-
 Not yet. The current client is blocking and uses `reqwest::blocking`.
 </details>
 
