@@ -40,8 +40,15 @@ pub struct ReqwestBlockingTransport {
 
 impl ReqwestBlockingTransport {
     pub fn new(connect_timeout: Duration) -> Result<Self, IpGeolocationError> {
-        let client = ReqwestClient::builder()
+        let builder = ReqwestClient::builder()
             .connect_timeout(connect_timeout)
+            .tcp_keepalive(None)
+            .tcp_keepalive_interval(None)
+            .tcp_keepalive_retries(None)
+            .redirect(reqwest::redirect::Policy::limited(9));
+        #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+        let builder = builder.tcp_user_timeout(None);
+        let client = builder
             .build()
             .map_err(|error| IpGeolocationError::transport("failed to build HTTP client", error))?;
 
