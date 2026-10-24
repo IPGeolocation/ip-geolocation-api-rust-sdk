@@ -159,8 +159,9 @@ fn map_reqwest_error(context: &'static str, error: reqwest::Error) -> IpGeolocat
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::io::{Cursor, Read, Write};
+    use std::io::{BufRead, BufReader, Cursor, Read, Write};
     use std::net::TcpListener;
+    use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
 
@@ -170,6 +171,92 @@ mod tests {
         read_response_body, to_header_map, HttpRequestData, HttpTransport, ReqwestBlockingTransport,
     };
     use crate::errors::IpGeolocationError;
+
+    fn tls_server() -> (
+        Url,
+        reqwest::Certificate,
+        thread::JoinHandle<std::io::Result<String>>,
+    ) {
+        let identity = rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_string()]).unwrap();
+        let certificate = reqwest::Certificate::from_der(identity.cert.der()).unwrap();
+        let config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![identity.cert.der().clone()],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(identity.signing_key.serialize_der())
+                    .into(),
+            )
+            .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = Url::parse(&format!(
+            "https://{}/lookup",
+            listener.local_addr().unwrap()
+        ))
+        .unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept()?;
+            stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+            stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+            let connection = rustls::ServerConnection::new(Arc::new(config)).unwrap();
+            let mut stream = rustls::StreamOwned::new(connection, stream);
+            let mut request_line = String::new();
+            {
+                let mut reader = BufReader::new(&mut stream);
+                reader.read_line(&mut request_line)?;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line)? == 0 || line == "\r\n" {
+                        break;
+                    }
+                }
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nX-Test: first\r\nX-Test: second\r\nConnection: close\r\n\r\n{}")?;
+            stream.flush()?;
+            Ok(request_line)
+        });
+        (url, certificate, server)
+    }
+
+    #[test]
+    fn tls_rejects_untrusted_certificate() {
+        let (url, _, server) = tls_server();
+        let transport = ReqwestBlockingTransport::new(Duration::from_secs(5)).unwrap();
+        let request = HttpRequestData {
+            method: Method::GET,
+            url,
+            headers: BTreeMap::new(),
+            body: None,
+            request_timeout: Duration::from_secs(5),
+        };
+        let error = transport.send(&request).unwrap_err();
+        assert!(matches!(error, IpGeolocationError::Transport { .. }));
+        assert!(format!("{error:?}").contains("UnknownIssuer"));
+        assert!(server.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn tls_preserves_response_body_and_repeated_headers() {
+        let (url, certificate, server) = tls_server();
+        let transport = ReqwestBlockingTransport {
+            client: reqwest::blocking::Client::builder()
+                .no_proxy()
+                .add_root_certificate(certificate)
+                .build()
+                .unwrap(),
+        };
+        let request = HttpRequestData {
+            method: Method::GET,
+            url,
+            headers: BTreeMap::new(),
+            body: None,
+            request_timeout: Duration::from_secs(5),
+        };
+        let (response, _) = transport.send(&request).unwrap();
+        assert_eq!(response.status_code, 200);
+        assert_eq!(response.body, "{}");
+        assert_eq!(response.headers["x-test"], ["first", "second"]);
+        assert_eq!(server.join().unwrap().unwrap(), "GET /lookup HTTP/1.1\r\n");
+    }
 
     #[test]
     fn invalid_header_name_is_rejected() {

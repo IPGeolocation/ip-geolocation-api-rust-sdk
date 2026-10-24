@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Updated the locked TLS stack to rustls 0.23.46, rustls-webpki 0.103.16 and webpki-roots 1.0.11 for the October security fixes and certificate distrust updates. Updated Tokio to the patched 1.51.6 release on the existing 1.51 line.
+- Added local TLS tests for certificate rejection and response compatibility. Applications must update their own dependency locks and rebuild to receive these fixes.
+
 ## 1.1.0
 
 - Updated `reqwest` from 0.11 to 0.12 to fix security vulnerabilities in its dependencies: RUSTSEC-2026-0258 (`h2`), RUSTSEC-2024-0421 (`idna`), RUSTSEC-2026-0098, RUSTSEC-2026-0099 and RUSTSEC-2026-0104 (`rustls-webpki`), and RUSTSEC-2025-0134 (`rustls-pemfile`, unmaintained). The public API is unchanged, and the client keeps its previous redirect limit and TCP keep-alive settings.
