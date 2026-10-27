@@ -28,6 +28,8 @@ Look up IPv4, IPv6, and domains with `/v3/ipgeo` and `/v3/ipgeo-bulk`. Get geolo
 
 ## Install
 
+Requires Rust 1.88 or later.
+
 ```bash
 cargo add ip-geolocation-api-rust-sdk
 ```
@@ -46,6 +48,17 @@ use ipgeolocation::{
 
 > [!NOTE]
 > The Cargo package name is `ip-geolocation-api-rust-sdk`, but the library import path is `ipgeolocation`.
+
+Applications with an existing `Cargo.lock` should refresh their TLS and Tokio
+dependencies and rebuild to receive the security fixes:
+
+```bash
+cargo update -p rustls -p rustls-webpki -p webpki-roots -p tokio
+```
+
+Use rustls 0.23.46+, rustls-webpki 0.103.16+, webpki-roots 1.0.11+, and Tokio
+1.51.6 on the 1.51 line or 1.53.3+. Updating this library's lockfile does not
+update an application's lockfile or an already compiled binary.
 
 ## Quick Start
 

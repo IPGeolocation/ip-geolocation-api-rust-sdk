@@ -1,7 +1,27 @@
 use ipgeolocation::{
     BulkLookupIpGeolocationRequest, IpGeolocationClient, IpGeolocationClientConfig,
-    LookupIpGeolocationRequest,
+    IpGeolocationError, LookupIpGeolocationRequest,
 };
+
+#[test]
+#[ignore = "calls the live API with an intentionally invalid key"]
+fn live_invalid_key_returns_unauthorized_over_tls() {
+    let client = IpGeolocationClient::new(IpGeolocationClientConfig {
+        api_key: Some("security-regression-invalid-key".to_string()),
+        ..IpGeolocationClientConfig::default()
+    })
+    .unwrap();
+    let error = client
+        .lookup_ip_geolocation(&LookupIpGeolocationRequest {
+            ip: Some("8.8.8.8".to_string()),
+            ..LookupIpGeolocationRequest::default()
+        })
+        .unwrap_err();
+    match error {
+        IpGeolocationError::Api(error) => assert_eq!(error.status_code(), 401),
+        other => panic!("expected a verified TLS connection and HTTP 401, got {other:?}"),
+    }
+}
 
 fn env_flag(name: &str) -> bool {
     matches!(
