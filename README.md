@@ -1,4 +1,4 @@
-# IPGeolocation Rust SDK
+# IPGeolocation.io Rust SDK
 
 Official Rust SDK for the IPGeolocation.io IP Geolocation API.
 
@@ -127,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Get Your API Key
 
-Create an IPGeolocation account and copy an API key from your dashboard.
+Create an IPGeolocation.io account and copy an API key from your dashboard.
 
 1. Sign up: <https://app.ipgeolocation.io/signup>
 2. Verify your email if prompted
