@@ -22,8 +22,9 @@ pub use config::IpGeolocationClientConfig;
 pub use errors::{ApiError, IpGeolocationError, ValidationError};
 pub use models::{
     Abuse, Asn, BulkLookupError, BulkLookupResult, Company, CountryMetadata, Currency,
-    DstTransition, IpGeolocationResponse, Location, Network, Security, TimeZoneInfo, UserAgent,
-    UserAgentDevice, UserAgentEngine, UserAgentOperatingSystem,
+    DetailedBulkLookupResult, DetailedIpGeolocationResponse, DetailedLocation, DetailedNetwork,
+    DetailedSecurity, DstTransition, IpGeolocationResponse, Location, Network, Security,
+    TimeZoneInfo, UserAgent, UserAgentDevice, UserAgentEngine, UserAgentOperatingSystem,
 };
 pub use requests::{BulkLookupIpGeolocationRequest, LookupIpGeolocationRequest};
 pub use response_format::ResponseFormat;

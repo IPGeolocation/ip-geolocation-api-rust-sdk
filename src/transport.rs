@@ -40,12 +40,24 @@ pub struct ReqwestBlockingTransport {
 
 impl ReqwestBlockingTransport {
     pub fn new(connect_timeout: Duration) -> Result<Self, IpGeolocationError> {
+        let limit = reqwest::redirect::Policy::limited(9);
         let builder = ReqwestClient::builder()
             .connect_timeout(connect_timeout)
             .tcp_keepalive(None)
             .tcp_keepalive_interval(None)
             .tcp_keepalive_retries(None)
-            .redirect(reqwest::redirect::Policy::limited(9));
+            .referer(false)
+            .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                if attempt
+                    .previous()
+                    .first()
+                    .is_some_and(|url| url.origin() != attempt.url().origin())
+                {
+                    attempt.stop()
+                } else {
+                    limit.redirect(attempt)
+                }
+            }));
         #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
         let builder = builder.tcp_user_timeout(None);
         let client = builder
@@ -78,7 +90,7 @@ impl HttpTransport for ReqwestBlockingTransport {
 
         let status_code = response.status().as_u16();
         let headers = clone_headers(response.headers());
-        let body = read_response_body(response, MAX_RESPONSE_BODY_BYTES)?;
+        let body = response_body_for_status(response, status_code, MAX_RESPONSE_BODY_BYTES)?;
 
         let duration_ms = started_at.elapsed().as_millis() as u64;
 
@@ -90,6 +102,17 @@ impl HttpTransport for ReqwestBlockingTransport {
             },
             duration_ms,
         ))
+    }
+}
+
+fn response_body_for_status(
+    reader: impl Read,
+    status: u16,
+    limit: usize,
+) -> Result<String, IpGeolocationError> {
+    match read_response_body(reader, limit) {
+        Err(_) if !(200..300).contains(&status) => Ok(String::new()),
+        result => result,
     }
 }
 
@@ -110,7 +133,10 @@ fn read_response_body(
     }
 
     String::from_utf8(buffer).map_err(|error| {
-        IpGeolocationError::serialization("failed to decode response body as UTF-8", error)
+        IpGeolocationError::serialization(
+            "failed to decode response body as UTF-8",
+            error.utf8_error(),
+        )
     })
 }
 
@@ -153,7 +179,7 @@ fn map_reqwest_error(context: &'static str, error: reqwest::Error) -> IpGeolocat
         return IpGeolocationError::request_timeout(context);
     }
 
-    IpGeolocationError::transport(context, error)
+    IpGeolocationError::transport("HTTP request failed", error.without_url())
 }
 
 #[cfg(test)]
@@ -171,6 +197,24 @@ mod tests {
         read_response_body, to_header_map, HttpRequestData, HttpTransport, ReqwestBlockingTransport,
     };
     use crate::errors::IpGeolocationError;
+
+    #[test]
+    fn oversized_error_keeps_status_and_discards_partial_body() {
+        for status in [302, 401, 429, 503] {
+            assert_eq!(
+                super::response_body_for_status(&b"12345"[..], status, 4).unwrap(),
+                ""
+            );
+            assert_eq!(
+                super::response_body_for_status(&b"1234"[..], status, 4).unwrap(),
+                "1234"
+            );
+        }
+        assert!(matches!(
+            super::response_body_for_status(&b"12345"[..], 200, 4),
+            Err(IpGeolocationError::Transport { .. })
+        ));
+    }
 
     fn tls_server() -> (
         Url,
