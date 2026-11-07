@@ -195,19 +195,23 @@ pub(crate) fn redact_key(message: String, api_key: Option<&str>) -> String {
     } else {
         message
     };
-    if message.contains(['%', '\\', '&', '+'])
-        && (has_encoded_key(&message, key, false)
-            || (key.contains(' ') && has_encoded_key(&message, key, true)))
-    {
-        return "[REDACTED]".into();
+    if message.contains(['%', '\\', '&', '+']) {
+        let syntaxes: &[&[char]] = &[&['\\', '&'], &['\\'], &['&'], &[]];
+        for &syntax in syntaxes {
+            if has_encoded_key(&message, key, syntax, false)
+                || (key.contains(' ') && has_encoded_key(&message, key, syntax, true))
+            {
+                return "[REDACTED]".into();
+            }
+        }
     }
     message
 }
 
-fn has_encoded_key(message: &str, key: &str, form_spaces: bool) -> bool {
+fn has_encoded_key(message: &str, key: &str, syntax: &[char], form_spaces: bool) -> bool {
     let mut text = Cow::Borrowed(message);
     for _ in 0..4 {
-        let mut unescaped = unescape_error_text(&text);
+        let mut unescaped = unescape_error_text(&text, syntax);
         if unescaped.contains(key) {
             return true;
         }
@@ -226,10 +230,10 @@ fn has_encoded_key(message: &str, key: &str, form_spaces: bool) -> bool {
     text.contains(['%', '\\', '&'])
 }
 
-fn unescape_error_text(text: &str) -> Cow<'_, str> {
+fn unescape_error_text<'a>(text: &'a str, syntax: &[char]) -> Cow<'a, str> {
     let mut result = String::new();
     let mut copied = 0;
-    for (i, _) in text.match_indices(['\\', '&']) {
+    for (i, _) in text.match_indices(syntax) {
         if i < copied {
             continue;
         }
@@ -248,7 +252,10 @@ fn unescape_error_text(text: &str) -> Cow<'_, str> {
 
 fn escaped_char(text: &str) -> Option<(usize, char)> {
     if text.starts_with('&') {
-        let end = text.bytes().take(14).position(|b| b == b';')?;
+        let end = 1 + text[1..]
+            .bytes()
+            .take_while(|b| *b != b'&')
+            .position(|b| b == b';')?;
         let ch = match &text[1..end] {
             "amp" => '&',
             "quot" => '"',

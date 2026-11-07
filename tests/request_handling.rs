@@ -381,6 +381,21 @@ fn escaped_keys_are_hidden_and_unrelated_errors_stay_readable() {
             r#"{"message":"invalid x%252By%252Fz"}"#,
             "[REDACTED]",
         ),
+        (
+            r"example\new&marker",
+            r"<message>bad example\new&amp;marker</message>",
+            "[REDACTED]",
+        ),
+        (
+            r#"example&amp;"marker"#,
+            r#"{"reason":"bad example&amp;\"marker"}"#,
+            "[REDACTED]",
+        ),
+        (
+            "test-fixture",
+            "<message>bad test-&#00000000000000000102;ixture</message>",
+            "[REDACTED]",
+        ),
         ("x&y", "<message>Bad x&amp;y</message>", "[REDACTED]"),
         ("x&y", "<message>Bad x&#38;y</message>", "[REDACTED]"),
         ("x&y", "<message>Bad x&#x26;y</message>", "[REDACTED]"),
