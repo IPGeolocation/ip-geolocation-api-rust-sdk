@@ -1,7 +1,8 @@
 [package]
 name = "ip-geolocation-api-rust-sdk"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
+rust-version = "1.88"
 license = "MIT"
 description = "Official Rust SDK for the IPGeolocation.io IP Location API."
 repository = "https://github.com/IPGeolocation/ip-geolocation-api-rust-sdk"
@@ -22,9 +23,10 @@ name = "ipgeolocation"
 path = "src/lib.rs"
 
 [dependencies]
+percent-encoding = "2"
 reqwest = { version = "0.12.28", features = ["blocking", "json", "rustls-tls", "http2", "system-proxy"], default-features = false }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 
 [dev-dependencies]
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }

@@ -150,3 +150,57 @@ fn live_bulk_error_parity_keeps_message() -> Result<(), Box<dyn std::error::Erro
 
     Ok(())
 }
+
+#[test]
+fn live_arabic_and_detailed_results() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(client) = live_client()? else {
+        return Ok(());
+    };
+    let ip = "8.8.8.8";
+    let single = ipgeolocation::LookupIpGeolocationRequest {
+        ip: Some(ip.into()),
+        lang: Some("ar".into()),
+        include: vec!["security".into()],
+        ..Default::default()
+    };
+    let bulk = BulkLookupIpGeolocationRequest {
+        ips: vec![ip.into(), "invalid-ip".into(), ip.into()],
+        lang: single.lang.clone(),
+        include: single.include.clone(),
+        ..Default::default()
+    };
+    let response = client.lookup_ip_geolocation_detailed(&single)?;
+    let raw: Value = serde_json::from_str(&client.lookup_ip_geolocation_raw(&single)?.data)?;
+    let typed = serde_json::to_value(&response.data)?;
+    for (group, field) in [
+        ("location", "district"),
+        ("network", "is_cdn"),
+        ("security", "is_corporate_gateway"),
+    ] {
+        let expected = raw[group]
+            .get(field)
+            .expect("requested field missing from API response");
+        assert_eq!(&typed[group][field], expected);
+    }
+    let country = response
+        .data
+        .location
+        .as_ref()
+        .and_then(|loc| loc.country_name.as_deref())
+        .unwrap();
+    assert!(country
+        .chars()
+        .any(|ch| ('\u{0600}'..='\u{06ff}').contains(&ch)));
+    let rows = client.bulk_lookup_ip_geolocation_detailed(&bulk)?.data;
+    assert_eq!(rows.len(), 3);
+    for i in [0, 2] {
+        let row = rows[i].as_ref().unwrap();
+        assert_eq!(
+            row.location.as_ref().unwrap().country_name.as_deref(),
+            Some(country)
+        );
+        assert_eq!(row.ip.as_deref(), Some(ip));
+    }
+    assert!(rows[1].is_err());
+    Ok(())
+}

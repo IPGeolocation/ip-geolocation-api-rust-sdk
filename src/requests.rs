@@ -92,9 +92,10 @@ fn validate_optional_language(value: Option<&str>) -> Result<(), ValidationError
     }
 
     match normalized.as_str() {
-        "en" | "de" | "ru" | "ja" | "fr" | "cn" | "es" | "cs" | "it" | "ko" | "fa" | "pt" => Ok(()),
+        "en" | "de" | "ru" | "ja" | "fr" | "cn" | "es" | "cs" | "it" | "ko" | "fa" | "pt"
+        | "ar" => Ok(()),
         _ => Err(ValidationError::new(
-            "lang must be one of: en, de, ru, ja, fr, cn, es, cs, it, ko, fa, pt",
+            "lang must be one of: en, de, ru, ja, fr, cn, es, cs, it, ko, fa, pt, ar",
         )),
     }
 }

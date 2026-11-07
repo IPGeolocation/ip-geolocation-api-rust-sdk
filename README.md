@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Supported Endpoints | `/v3/ipgeo`, `/v3/ipgeo-bulk` |
 | Supported Inputs | IPv4, IPv6, domain |
 | Main Data Returned | Geolocation, company, ASN, time zone, network, hostname, abuse, user-agent, currency, security |
-| Authentication | API key, request-origin auth for `/v3/ipgeo` only |
+| Authentication | API key |
 | Response Formats | Structured JSON, raw JSON, raw XML |
 | Bulk Limit | Up to 50,000 IPs or domains per request |
 | Transport | Blocking `reqwest` client |
@@ -135,7 +135,7 @@ Create an IPGeolocation.io account and copy an API key from your dashboard.
 4. Open your dashboard: <https://app.ipgeolocation.io/dashboard>
 5. Copy an API key from the `API Keys` section
 
-For server-side Rust code, keep the API key in an environment variable or secret manager. For browser-based single lookups on paid plans, use request-origin auth instead of exposing an API key in frontend code.
+Keep your IPGeolocation.io API key in an environment variable or secret manager.
 
 ## Authentication
 
@@ -152,25 +152,7 @@ let client = IpGeolocationClient::new(IpGeolocationClientConfig {
 })?;
 ```
 
-### Request-Origin Auth
-
-```rust
-use ipgeolocation::{IpGeolocationClient, IpGeolocationClientConfig};
-
-let client = IpGeolocationClient::new(IpGeolocationClientConfig {
-    request_origin: Some("https://app.example.com".to_string()),
-    ..IpGeolocationClientConfig::default()
-})?;
-```
-
-`request_origin` must be an absolute `http` or `https` origin with no path, query string, fragment, or userinfo.
-If `request_origin` is set, the client sends it in the `Origin` header.
-
-> [!IMPORTANT]
-> Request-origin auth does not work with `/v3/ipgeo-bulk`. Bulk lookup always requires `api_key`.
-
-> [!NOTE]
-> If you set both `api_key` and `request_origin`, single lookup still uses the API key. The API key is sent as the `apiKey` query parameter, so avoid logging full request URLs.
+The API key is sent as the `apiKey` query parameter, so avoid logging full request URLs.
 
 ## Plan Behavior
 
@@ -182,7 +164,6 @@ Feature availability depends on your plan and request parameters.
 | Domain lookup | Not supported | Supported |
 | Bulk lookup | Not supported | Supported |
 | Non-English `lang` | Not supported | Supported |
-| Request-origin auth | Not supported | Supported for `/v3/ipgeo` only |
 | Optional modules via `include` | Not supported | Supported |
 | `include: ["*"]` | Base response only | All plan-available modules |
 
@@ -192,9 +173,8 @@ Paid plans still need `include` for optional modules. `fields` and `excludes` on
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `api_key` | `Option<String>` | unset | Required for bulk lookup. Optional for single lookup if `request_origin` is set. |
-| `request_origin` | `Option<String>` | unset | Must be an absolute `http` or `https` origin with no path, query string, fragment, or userinfo. |
-| `base_url` | `String` | `https://api.ipgeolocation.io` | Override the API base URL. Must be an absolute `http` or `https` URL. |
+| `api_key` | `Option<String>` | unset | Your IPGeolocation.io API key. |
+| `base_url` | `String` | `https://api.ipgeolocation.io` | Use the final address of your API or proxy. The SDK follows redirects only when the protocol, host, and port stay the same. Must be an absolute `http` or `https` URL. |
 | `connect_timeout_ms` | `u64` | `10000` | Time to open the connection. Must be greater than zero. |
 | `request_timeout_ms` | `u64` | `30000` | Full-request timeout. Must be greater than zero. |
 
@@ -208,6 +188,8 @@ Create the client with `IpGeolocationClient::new(...)`. Config values are valida
 | `lookup_ip_geolocation_raw(request)` | `Result<ApiResponse<String>, IpGeolocationError>` | Single lookup. Raw JSON or XML string. |
 | `bulk_lookup_ip_geolocation(request)` | `Result<ApiResponse<Vec<BulkLookupResult>>, IpGeolocationError>` | Bulk lookup. Typed JSON response. |
 | `bulk_lookup_ip_geolocation_raw(request)` | `Result<ApiResponse<String>, IpGeolocationError>` | Bulk lookup. Raw JSON or XML string. |
+| `lookup_ip_geolocation_detailed(request)` | `Result<ApiResponse<DetailedIpGeolocationResponse>, IpGeolocationError>` | Single lookup with extra location, CDN and security fields. |
+| `bulk_lookup_ip_geolocation_detailed(request)` | `Result<ApiResponse<Vec<DetailedBulkLookupResult>>, IpGeolocationError>` | Bulk lookup with the same fields. Each row is `Ok(data)` or `Err(error)`. |
 | `close()` | `()` | Marks the client closed. Closed clients cannot be reused. |
 
 > [!NOTE]
@@ -219,7 +201,7 @@ Create the client with `IpGeolocationClient::new(...)`. Config values are valida
 |-------|------------|-------|
 | `ip` | Single lookup | IPv4, IPv6, or domain. Leave it empty for caller IP lookup. |
 | `ips` | Bulk lookup | Collection of 1 to 50,000 IPs or domains. Order and duplicates are preserved. |
-| `lang` | Single and bulk | One of `en`, `de`, `ru`, `ja`, `fr`, `cn`, `es`, `cs`, `it`, `ko`, `fa`, `pt`. |
+| `lang` | Single and bulk | One of `en`, `de`, `ru`, `ja`, `fr`, `cn`, `es`, `cs`, `it`, `ko`, `fa`, `pt`, `ar` (Arabic). |
 | `include` | Single and bulk | Collection of module names such as `security`, `abuse`, `user_agent`, `hostname`, `liveHostname`, `hostnameFallbackLive`, `geo_accuracy`, `dma_code`, or `*`. |
 | `fields` | Single and bulk | Collection of field paths to keep, for example `location.country_name` or `security.threat_score`. |
 | `excludes` | Single and bulk | Collection of field paths to remove from the response. |
@@ -366,6 +348,8 @@ println!("{}", response.data);
 
 ### Bulk Lookup
 
+Each input has one result in the same position, including duplicate IPs. If a typed bulk lookup gets too few or too many results, or a row is not an object, it returns `IpGeolocationError::Serialization`. Raw lookups return the response as received.
+
 ```rust
 let response = client.bulk_lookup_ip_geolocation(&BulkLookupIpGeolocationRequest {
     ips: vec![
@@ -425,7 +409,7 @@ println!("{:?}", response.metadata.raw_headers.get("content-type"));
 
 ## Errors
 
-The SDK returns `IpGeolocationError`.
+The SDK returns `IpGeolocationError`. It hides your API key in request errors, including errors for individual IPs in a typed bulk lookup. If an API error arrives with a broken or oversized response body, you still get its HTTP status.
 
 | Error Variant | When it happens |
 |---------------|-----------------|
@@ -471,20 +455,14 @@ match client.lookup_ip_geolocation(&LookupIpGeolocationRequest {
 ## Troubleshooting
 
 - `cargo add ip-geolocation-api-rust-sdk`, but `use ipgeolocation::...` in code.
-- Bulk lookup always requires `api_key`. `request_origin` is not enough.
+- Set `api_key` before making a lookup.
 - Typed methods only support JSON. Use the raw methods for XML.
 - If you need security, abuse, user-agent, or hostname data, include those modules explicitly.
 - `fields` and `excludes` filter the response. They do not unlock paid data.
-- `request_origin` must be an origin only. Do not include a path, query string, fragment, or userinfo.
 - `request_timeout_ms` is a full-request timeout, not a socket-only body-read timeout.
 - This client is blocking. If your application is async-first, run it on a blocking thread or add an async client later.
 
 ## Frequently Asked Questions
-
-<details>
-<summary>Can I use this SDK without an API key?</summary>
-Only for single lookup with paid-plan request-origin auth. Bulk lookup always requires an API key.
-</details>
 
 <details>
 <summary>Can I request XML and still get typed models?</summary>
