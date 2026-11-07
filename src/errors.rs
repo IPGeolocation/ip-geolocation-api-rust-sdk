@@ -190,32 +190,108 @@ pub(crate) fn redact_key(message: String, api_key: Option<&str>) -> String {
     let Some(key) = api_key.map(str::trim).filter(|key| !key.is_empty()) else {
         return message;
     };
-    let mut message = message;
-    if message.contains(key) {
-        message = message.replace(key, "[REDACTED]");
-    }
-    if message.contains('\\') {
-        let escaped = serde_json::to_string(key).expect("writing JSON to a string cannot fail");
-        let escaped = &escaped[1..escaped.len() - 1];
-        if escaped != key && message.contains(escaped) {
-            message = message.replace(escaped, "[REDACTED]");
-        }
-        if message.contains("\\u") {
-            return "[REDACTED]".into();
-        }
-    }
-    if message.contains('%') || message.contains('+') {
-        let decoded = percent_encoding::percent_decode_str(&message).decode_utf8_lossy();
-        if decoded.contains(key)
-            || (message.contains('+')
-                && percent_encoding::percent_decode_str(&message.replace('+', " "))
-                    .decode_utf8_lossy()
-                    .contains(key))
-        {
-            return "[REDACTED]".into();
-        }
+    let message = if message.contains(key) {
+        message.replace(key, "[REDACTED]")
+    } else {
+        message
+    };
+    if message.contains(['%', '\\', '&', '+'])
+        && (has_encoded_key(&message, key, false)
+            || (key.contains(' ') && has_encoded_key(&message, key, true)))
+    {
+        return "[REDACTED]".into();
     }
     message
+}
+
+fn has_encoded_key(message: &str, key: &str, form_spaces: bool) -> bool {
+    let mut text = Cow::Borrowed(message);
+    for _ in 0..4 {
+        let mut unescaped = unescape_error_text(&text);
+        if unescaped.contains(key) {
+            return true;
+        }
+        if form_spaces && unescaped.contains('+') {
+            unescaped = Cow::Owned(unescaped.replace('+', " "));
+        }
+        let decoded = percent_encoding::percent_decode_str(&unescaped).decode_utf8_lossy();
+        if decoded.contains(key) {
+            return true;
+        }
+        if decoded == text {
+            return false;
+        }
+        text = Cow::Owned(decoded.into_owned());
+    }
+    text.contains(['%', '\\', '&'])
+}
+
+fn unescape_error_text(text: &str) -> Cow<'_, str> {
+    let mut result = String::new();
+    let mut copied = 0;
+    for (i, _) in text.match_indices(['\\', '&']) {
+        if i < copied {
+            continue;
+        }
+        if let Some((len, ch)) = escaped_char(&text[i..]) {
+            result.push_str(&text[copied..i]);
+            result.push(ch);
+            copied = i + len;
+        }
+    }
+    if copied == 0 {
+        return Cow::Borrowed(text);
+    }
+    result.push_str(&text[copied..]);
+    Cow::Owned(result)
+}
+
+fn escaped_char(text: &str) -> Option<(usize, char)> {
+    if text.starts_with('&') {
+        let end = text.bytes().take(14).position(|b| b == b';')?;
+        let ch = match &text[1..end] {
+            "amp" => '&',
+            "quot" => '"',
+            "apos" => '\'',
+            "lt" => '<',
+            "gt" => '>',
+            entity => {
+                let digits = entity.strip_prefix('#')?;
+                let value = match digits
+                    .strip_prefix('x')
+                    .or_else(|| digits.strip_prefix('X'))
+                {
+                    Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+                    None => digits.parse().ok()?,
+                };
+                char::from_u32(value)?
+            }
+        };
+        return Some((end + 1, ch));
+    }
+    let ch = match text.as_bytes().get(1)? {
+        b'/' => '/',
+        b'\\' => '\\',
+        b'"' => '"',
+        b'n' => '\n',
+        b'r' => '\r',
+        b't' => '\t',
+        b'b' => '\x08',
+        b'f' => '\x0c',
+        b'u' => {
+            let first = u16::from_str_radix(text.get(2..6)?, 16).ok()?;
+            if let Some(ch) = char::from_u32(u32::from(first)) {
+                return Some((6, ch));
+            }
+            if text.get(6..8) != Some("\\u") {
+                return None;
+            }
+            let second = u16::from_str_radix(text.get(8..12)?, 16).ok()?;
+            return Some((12, char::decode_utf16([first, second]).next()?.ok()?));
+        }
+        _ => return None,
+    };
+    Some((2, ch))
 }
 
 #[cfg(test)]

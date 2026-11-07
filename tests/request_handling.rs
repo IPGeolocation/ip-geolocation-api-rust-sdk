@@ -38,10 +38,17 @@ fn read_request(stream: &TcpStream) -> Request {
 }
 
 fn serve(responses: Vec<Vec<u8>>) -> (IpGeolocationClient, thread::JoinHandle<Vec<Request>>) {
+    serve_with_key(responses, KEY)
+}
+
+fn serve_with_key(
+    responses: Vec<Vec<u8>>,
+    key: &str,
+) -> (IpGeolocationClient, thread::JoinHandle<Vec<Request>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let client = IpGeolocationClient::new(IpGeolocationClientConfig {
         base_url: format!("http://{}", listener.local_addr().unwrap()),
-        api_key: Some(format!(" {KEY} ")),
+        api_key: Some(format!(" {key} ")),
         request_timeout_ms: 3_000,
         ..Default::default()
     })
@@ -363,4 +370,35 @@ fn bulk_handles_fifty_thousand_results_in_order() {
         .as_ref()
         == Some(ip)));
     server.join().unwrap();
+}
+
+#[test]
+fn escaped_keys_are_hidden_and_unrelated_errors_stay_readable() {
+    for (key, body, expected) in [
+        ("x+y/z", r#"{"reason":"bad x+y\/z"}"#, "[REDACTED]"),
+        (
+            "x+y/z",
+            r#"{"message":"invalid x%252By%252Fz"}"#,
+            "[REDACTED]",
+        ),
+        ("x&y", "<message>Bad x&amp;y</message>", "[REDACTED]"),
+        ("x&y", "<message>Bad x&#38;y</message>", "[REDACTED]"),
+        ("x&y", "<message>Bad x&#x26;y</message>", "[REDACTED]"),
+        ("x💡y", r#"{"reason":"bad x\ud83d\udca1y"}"#, "[REDACTED]"),
+        (
+            "unrelated",
+            r"File C:\users\cache was unavailable",
+            r"File C:\users\cache was unavailable",
+        ),
+    ] {
+        let (client, server) =
+            serve_with_key(vec![response("403 Forbidden", "", body.as_bytes())], key);
+        let error = client.lookup_ip_geolocation_raw(&single()).unwrap_err();
+        let IpGeolocationError::Api(error) = error else {
+            panic!("expected an API error");
+        };
+        server.join().unwrap();
+        assert_eq!(error.status_code(), 403);
+        assert_eq!(error.message(), expected, "{body}");
+    }
 }
