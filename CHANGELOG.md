@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
-- Updated the locked TLS stack to rustls 0.23.46, rustls-webpki 0.103.16 and webpki-roots 1.0.11 for the October security fixes and certificate distrust updates. Updated Tokio to the patched 1.51.6 release on the existing 1.51 line.
-- Added local TLS tests for certificate rejection and response compatibility. Applications must update their own dependency locks and rebuild to receive these fixes.
+- Add Arabic (`ar`) for single and bulk lookups.
+- Add detailed lookups with more location, CDN, proxy and bot fields, including corporate gateway details. Existing lookup methods keep their current result types.
+- Stop redirects to another server and keep API keys out of request errors and typed bulk error messages.
+- Keep the HTTP status when an error response is too large or cut short. Reject invalid typed responses and bulk results with missing or extra rows.
+- Update the locked versions of Rustls, its certificate libraries and Tokio. Add tests for certificate checks and HTTPS responses.
 
 ## 1.1.0
 

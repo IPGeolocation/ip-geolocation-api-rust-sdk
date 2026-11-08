@@ -4,13 +4,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::{Method, Url};
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 use crate::api_response::{ApiResponse, ApiResponseMetadata};
 use crate::config::IpGeolocationClientConfig;
-use crate::errors::{ApiError, IpGeolocationError, ValidationError};
-use crate::models::{BulkLookupError, BulkLookupResult, IpGeolocationResponse};
+use crate::errors::{redact_key, ApiError, IpGeolocationError, ValidationError};
+use crate::models::{
+    BulkLookupError, BulkLookupResult, DetailedBulkLookupResult, DetailedIpGeolocationResponse,
+    IpGeolocationResponse,
+};
 use crate::requests::{BulkLookupIpGeolocationRequest, LookupIpGeolocationRequest};
 use crate::response_format::ResponseFormat;
 use crate::transport::{HttpRequestData, HttpTransport, ReqwestBlockingTransport};
@@ -62,27 +65,36 @@ impl IpGeolocationClient {
         &self,
         request: &LookupIpGeolocationRequest,
     ) -> Result<ApiResponse<IpGeolocationResponse>, IpGeolocationError> {
+        self.lookup_typed(request)
+    }
+
+    pub fn lookup_ip_geolocation_detailed(
+        &self,
+        request: &LookupIpGeolocationRequest,
+    ) -> Result<ApiResponse<DetailedIpGeolocationResponse>, IpGeolocationError> {
+        self.lookup_typed(request)
+    }
+
+    fn lookup_typed<T: DeserializeOwned>(
+        &self,
+        request: &LookupIpGeolocationRequest,
+    ) -> Result<ApiResponse<T>, IpGeolocationError> {
         self.ensure_open()?;
         self.validate_single_request(request)?;
-
-        let request_data = self.build_lookup_request(request)?;
-        let (response, duration_ms) = self.transport.send(&request_data)?;
-
-        if !is_success_status(response.status_code) {
-            return Err(to_api_error(response.status_code, &response.body));
+        let response = self.send(&self.build_lookup_request(request)?)?;
+        if !response.data.trim_start().starts_with('{') {
+            return Err(IpGeolocationError::Serialization {
+                message: "expected an object in the single lookup response".into(),
+                source: None,
+            });
         }
-
-        let data =
-            serde_json::from_str::<IpGeolocationResponse>(&response.body).map_err(|error| {
-                IpGeolocationError::serialization(
-                    "failed to parse single lookup response body",
-                    error,
-                )
-            })?;
-
+        let data = serde_json::from_str(&response.data).map_err(|error| {
+            IpGeolocationError::serialization("failed to parse single lookup response body", error)
+                .redact(self.config.api_key.as_deref())
+        })?;
         Ok(ApiResponse {
             data,
-            metadata: to_metadata(response.status_code, duration_ms, response.headers),
+            metadata: response.metadata,
         })
     }
 
@@ -92,39 +104,46 @@ impl IpGeolocationClient {
     ) -> Result<ApiResponse<String>, IpGeolocationError> {
         self.ensure_open()?;
         self.validate_single_raw_request(request)?;
-
-        let request_data = self.build_lookup_request(request)?;
-        let (response, duration_ms) = self.transport.send(&request_data)?;
-
-        if !is_success_status(response.status_code) {
-            return Err(to_api_error(response.status_code, &response.body));
-        }
-
-        Ok(ApiResponse {
-            data: response.body,
-            metadata: to_metadata(response.status_code, duration_ms, response.headers),
-        })
+        self.send(&self.build_lookup_request(request)?)
     }
 
     pub fn bulk_lookup_ip_geolocation(
         &self,
         request: &BulkLookupIpGeolocationRequest,
     ) -> Result<ApiResponse<Vec<BulkLookupResult>>, IpGeolocationError> {
+        self.bulk_typed(request, |row| match row {
+            Ok(data) => BulkLookupResult {
+                data: Some(data),
+                error: None,
+            },
+            Err(error) => BulkLookupResult {
+                data: None,
+                error: Some(error),
+            },
+        })
+    }
+
+    pub fn bulk_lookup_ip_geolocation_detailed(
+        &self,
+        request: &BulkLookupIpGeolocationRequest,
+    ) -> Result<ApiResponse<Vec<DetailedBulkLookupResult>>, IpGeolocationError> {
+        self.bulk_typed(request, std::convert::identity)
+    }
+
+    fn bulk_typed<T: DeserializeOwned, R>(
+        &self,
+        request: &BulkLookupIpGeolocationRequest,
+        row: impl Fn(Result<T, BulkLookupError>) -> R,
+    ) -> Result<ApiResponse<Vec<R>>, IpGeolocationError> {
         self.ensure_open()?;
         self.validate_bulk_request(request)?;
-
-        let request_data = self.build_bulk_request(request)?;
-        let (response, duration_ms) = self.transport.send(&request_data)?;
-
-        if !is_success_status(response.status_code) {
-            return Err(to_api_error(response.status_code, &response.body));
-        }
-
-        let data = parse_bulk_lookup_results(&response.body)?;
-
+        let response = self.send(&self.build_bulk_request(request)?)?;
+        let key = self.config.api_key.as_deref();
+        let data = parse_bulk_lookup_results(&response.data, request.ips.len(), key, row)
+            .map_err(|error| error.redact(key))?;
         Ok(ApiResponse {
             data,
-            metadata: to_metadata(response.status_code, duration_ms, response.headers),
+            metadata: response.metadata,
         })
     }
 
@@ -134,14 +153,18 @@ impl IpGeolocationClient {
     ) -> Result<ApiResponse<String>, IpGeolocationError> {
         self.ensure_open()?;
         self.validate_bulk_raw_request(request)?;
+        self.send(&self.build_bulk_request(request)?)
+    }
 
-        let request_data = self.build_bulk_request(request)?;
-        let (response, duration_ms) = self.transport.send(&request_data)?;
-
+    fn send(&self, request: &HttpRequestData) -> Result<ApiResponse<String>, IpGeolocationError> {
+        let key = self.config.api_key.as_deref();
+        let (response, duration_ms) = self
+            .transport
+            .send(request)
+            .map_err(|error| error.redact(key))?;
         if !is_success_status(response.status_code) {
-            return Err(to_api_error(response.status_code, &response.body));
+            return Err(to_api_error(response.status_code, &response.body).redact(key));
         }
-
         Ok(ApiResponse {
             data: response.body,
             metadata: to_metadata(response.status_code, duration_ms, response.headers),
@@ -516,41 +539,79 @@ fn default_api_error_message(status_code: u16) -> String {
     .to_string()
 }
 
-fn parse_bulk_lookup_results(body: &str) -> Result<Vec<BulkLookupResult>, IpGeolocationError> {
-    let values = serde_json::from_str::<Vec<Value>>(body).map_err(|error| {
-        IpGeolocationError::serialization("failed to parse bulk lookup response body", error)
-    })?;
+struct BulkRows(usize);
 
-    let mut results = Vec::with_capacity(values.len());
-    for value in values {
-        if is_bulk_error_value(&value) {
-            results.push(BulkLookupResult {
-                data: None,
-                error: Some(BulkLookupError {
-                    message: Some(read_bulk_error_message(&value)),
-                }),
-            });
-            continue;
-        }
+impl<'de> serde::de::Visitor<'de> for BulkRows {
+    type Value = Vec<&'de serde_json::value::RawValue>;
 
-        let response = serde_json::from_value::<IpGeolocationResponse>(value).map_err(|error| {
-            IpGeolocationError::serialization("failed to parse bulk lookup response item", error)
-        })?;
-        results.push(BulkLookupResult {
-            data: Some(response),
-            error: None,
-        });
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "an array of {} bulk results", self.0)
     }
 
-    Ok(results)
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(
+        self,
+        mut items: A,
+    ) -> Result<Self::Value, A::Error> {
+        use serde::de::Error;
+        let mut rows = Vec::with_capacity(self.0);
+        for _ in 0..self.0 {
+            match items.next_element()? {
+                Some(row) => rows.push(row),
+                None => return Err(A::Error::invalid_length(rows.len(), &self)),
+            }
+        }
+        if items.next_element::<serde::de::IgnoredAny>()?.is_some() {
+            return Err(A::Error::invalid_length(self.0 + 1, &self));
+        }
+        Ok(rows)
+    }
 }
 
-fn is_bulk_error_value(value: &Value) -> bool {
-    let Some(object) = value.as_object() else {
-        return false;
-    };
-
-    object.contains_key("error") || (object.contains_key("message") && !object.contains_key("ip"))
+fn parse_bulk_lookup_results<T: DeserializeOwned, R>(
+    body: &str,
+    expected: usize,
+    api_key: Option<&str>,
+    row: impl Fn(Result<T, BulkLookupError>) -> R,
+) -> Result<Vec<R>, IpGeolocationError> {
+    use serde::de::Deserializer;
+    let mut parser = serde_json::Deserializer::from_str(body);
+    let values = parser
+        .deserialize_seq(BulkRows(expected))
+        .and_then(|rows| {
+            parser.end()?;
+            Ok(rows)
+        })
+        .map_err(|error| {
+            IpGeolocationError::serialization("failed to parse bulk lookup response body", error)
+        })?;
+    values
+        .into_iter()
+        .map(|raw| {
+            let object: serde_json::Map<String, Value> =
+                serde_json::from_str(raw.get()).map_err(|error| {
+                    IpGeolocationError::serialization(
+                        "expected an object in the bulk lookup response",
+                        error,
+                    )
+                })?;
+            let is_error = object.contains_key("error")
+                || (object.contains_key("message") && !object.contains_key("ip"));
+            let value = Value::Object(object);
+            if is_error {
+                Ok(row(Err(BulkLookupError {
+                    message: Some(redact_key(read_bulk_error_message(&value), api_key)),
+                })))
+            } else {
+                let data = serde_json::from_value(value).map_err(|error| {
+                    IpGeolocationError::serialization(
+                        "failed to parse bulk lookup response item",
+                        error,
+                    )
+                })?;
+                Ok(row(Ok(data)))
+            }
+        })
+        .collect()
 }
 
 fn read_bulk_error_message(value: &Value) -> String {

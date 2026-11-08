@@ -213,3 +213,99 @@ impl BulkLookupResult {
         self.data.is_some() && self.error.is_none()
     }
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[non_exhaustive]
+pub struct DetailedIpGeolocationResponse {
+    pub ip: Option<String>,
+    pub domain: Option<String>,
+    pub hostname: Option<String>,
+    pub location: Option<DetailedLocation>,
+    pub country_metadata: Option<CountryMetadata>,
+    pub network: Option<DetailedNetwork>,
+    pub currency: Option<Currency>,
+    pub asn: Option<Asn>,
+    pub company: Option<Company>,
+    pub security: Option<DetailedSecurity>,
+    pub abuse: Option<Abuse>,
+    pub time_zone: Option<TimeZoneInfo>,
+    pub user_agent: Option<UserAgent>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[non_exhaustive]
+pub struct DetailedLocation {
+    pub country_name: Option<String>,
+    pub city: Option<String>,
+    pub state_prov: Option<String>,
+    pub latitude: Option<String>,
+    pub longitude: Option<String>,
+    pub country_code2: Option<String>,
+    pub continent_code: Option<String>,
+    pub continent_name: Option<String>,
+    pub country_code3: Option<String>,
+    pub country_name_official: Option<String>,
+    pub country_capital: Option<String>,
+    pub state_code: Option<String>,
+    pub district: Option<String>,
+    pub locality: Option<String>,
+    pub zipcode: Option<String>,
+    pub country_flag: Option<String>,
+    pub geoname_id: Option<String>,
+    pub country_emoji: Option<String>,
+    pub accuracy_radius: Option<String>,
+    pub dma_code: Option<String>,
+    pub confidence: Option<String>,
+    pub is_eu: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[non_exhaustive]
+pub struct DetailedNetwork {
+    pub connection_type: Option<String>,
+    pub route: Option<String>,
+    pub is_anycast: Option<bool>,
+    pub is_cdn: Option<bool>,
+    pub cdn_provider_name: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+#[non_exhaustive]
+pub struct DetailedSecurity {
+    pub threat_score: Option<f64>,
+    pub is_tor: Option<bool>,
+    pub is_proxy: Option<bool>,
+    pub proxy_provider_names: Option<Vec<String>>,
+    pub proxy_confidence_score: Option<f64>,
+    pub proxy_last_seen: Option<String>,
+    pub is_residential_proxy: Option<bool>,
+    pub is_vpn: Option<bool>,
+    pub vpn_provider_names: Option<Vec<String>>,
+    pub vpn_confidence_score: Option<f64>,
+    pub vpn_last_seen: Option<String>,
+    pub is_relay: Option<bool>,
+    pub relay_provider_name: Option<String>,
+    pub is_anonymous: Option<bool>,
+    pub is_known_attacker: Option<bool>,
+    pub is_bot: Option<bool>,
+    pub is_spam: Option<bool>,
+    pub is_cloud_provider: Option<bool>,
+    pub cloud_provider_name: Option<String>,
+    pub proxy_days_seen_7d: Option<u32>,
+    pub proxy_days_seen_30d: Option<u32>,
+    pub proxy_provider_count_30d: Option<u32>,
+    pub is_known_good_bot: Option<bool>,
+    pub bot_type: Option<String>,
+    pub bot_operator_name: Option<String>,
+    pub bot_confidence_score: Option<f64>,
+    pub bot_last_seen: Option<String>,
+    pub is_corporate_gateway: Option<bool>,
+    pub corporate_gateway_provider_name: Option<String>,
+    pub corporate_gateway_type: Option<String>,
+}
+
+pub type DetailedBulkLookupResult = Result<DetailedIpGeolocationResponse, BulkLookupError>;
